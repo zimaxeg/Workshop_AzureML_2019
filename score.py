@@ -1,24 +1,31 @@
+import pickle
 import json
 import numpy as np
-import os
-import tensorflow as tf
-
+from sklearn.externals import joblib
+from sklearn.linear_model import LinearRegression
 from azureml.core.model import Model
 
-def init():
-    global X, output, sess
-    tf.reset_default_graph()
-    model_root = Model.get_model_path('tf-dnn-mnist')
-    saver = tf.train.import_meta_graph(os.path.join(model_root, 'mnist-tf.model.meta'))
-    X = tf.get_default_graph().get_tensor_by_name("network/X:0")
-    output = tf.get_default_graph().get_tensor_by_name("network/output/MatMul:0")
-    
-    sess = tf.Session()
-    saver.restore(sess, os.path.join(model_root, 'mnist-tf.model'))
+from inference_schema.schema_decorators import input_schema, output_schema
+from inference_schema.parameter_types.numpy_parameter_type import NumpyParameterType
 
-def run(raw_data):
-    data = np.array(json.loads(raw_data)['data'])
-    # make prediction
-    out = output.eval(session=sess, feed_dict={X: data})
-    y_hat = np.argmax(out, axis=1)
-    return y_hat.tolist()
+def init():
+    global model
+    # note here "sklearn_regression_model.pkl" is the name of the model registered under
+    # this is a different behavior than before when the code is run locally, even though the code is the same.
+    model_path = Model.get_model_path('boston_model.pkl')
+    # deserialize the model file back into a sklearn model
+    model = joblib.load(model_path)
+
+input_sample = np.array([[0.00632, 18.0, 2.31, 0.0, 0.538, 6.575, 65.2, 4.09, 1.0, 296.0, 15.3, 396.9, 4.98]])
+output_sample = np.array([3726.995])
+
+@input_schema('data', NumpyParameterType(input_sample))
+@output_schema(NumpyParameterType(output_sample))
+def run(data):
+    try:
+        result = model.predict(data)
+        # you can return any datatype as long as it is JSON-serializable
+        return result.tolist()[0]
+    except Exception as e:
+        error = str(e)
+        return error
